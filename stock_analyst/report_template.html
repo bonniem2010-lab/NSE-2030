@@ -1,0 +1,307 @@
+<title>Stock Analyst</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,500..800&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: watchlist ledger on the left drives a detail sheet on the right; stacks on phones. */
+:root {
+  --paper: #eef1f0;
+  --sheet: #fbfcfc;
+  --ink: #15212c;
+  --muted: #5b6874;
+  --rule: #d5dcdd;
+  --accent: #2b55b8;
+  --buy: #18794e;
+  --hold: #a3660d;
+  --sell: #b93a26;
+  --buy-wash: #e2f2e9;
+  --hold-wash: #f7ecd9;
+  --sell-wash: #f8e3df;
+  --sma50: #2b55b8;
+  --sma200: #8a5cc2;
+  --font-display: "Archivo", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0f1519; --sheet: #161e24; --ink: #e4eaed; --muted: #92a0ab; --rule: #2a353d;
+    --accent: #7ea2f2; --buy: #4cc58a; --hold: #e2a64a; --sell: #f07a63;
+    --buy-wash: #173326; --hold-wash: #3a2c14; --sell-wash: #3d1d17;
+    --sma50: #7ea2f2; --sma200: #c19bf0; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0f1519; --sheet: #161e24; --ink: #e4eaed; --muted: #92a0ab; --rule: #2a353d;
+  --accent: #7ea2f2; --buy: #4cc58a; --hold: #e2a64a; --sell: #f07a63;
+  --buy-wash: #173326; --hold-wash: #3a2c14; --sell-wash: #3d1d17;
+  --sma50: #7ea2f2; --sma200: #c19bf0; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.5 var(--font-body); }
+.wrap { max-width: 1240px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 48px; display: grid; gap: 22px; }
+header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px 24px; }
+h1 { font-family: var(--font-display); font-stretch: 80%; font-weight: 800; font-size: 2.1rem; line-height: 1; margin: 0; letter-spacing: -0.01em; }
+.sub { color: var(--muted); margin: 6px 0 0; max-width: 62ch; }
+.stamp { font-family: var(--font-data); font-size: 12px; color: var(--muted); text-align: right; }
+.stamp b { color: var(--ink); font-weight: 500; }
+.tally { display: grid; gap: 8px; }
+.tally-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--rule); }
+.tally-bar span { display: block; }
+.tally-legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--muted); }
+.tally-legend b { font-family: var(--font-data); color: var(--ink); font-weight: 500; margin-right: 4px; }
+.grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 22px; align-items: start; }
+@media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 520px) { .c-1d { display: none; } th, td { padding-inline: 9px; } .detail { padding: 16px; } }
+.panel { background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px; min-width: 0; }
+.ledger { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th { font: 600 11px/1 var(--font-body); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); text-align: left; padding: 14px 12px 10px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+th.num, td.num { text-align: right; }
+td { padding: 10px 12px; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+tr:last-child td { border-bottom: 0; }
+tbody tr { cursor: pointer; }
+tbody tr:hover td { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+tbody tr[aria-selected="true"] td { background: color-mix(in srgb, var(--accent) 11%, transparent); }
+tbody tr:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.nm { font-weight: 600; line-height: 1.2; }
+.sym { font-family: var(--font-data); font-size: 12px; color: var(--muted); }
+.mono { font-family: var(--font-data); font-size: 13px; white-space: nowrap; }
+.up { color: var(--buy); } .down { color: var(--sell); }
+.pill { display: inline-block; font: 700 11px/1 var(--font-display); letter-spacing: 0.08em; padding: 5px 8px 4px; border-radius: 4px; }
+.pill.BUY { color: var(--buy); background: var(--buy-wash); }
+.pill.HOLD { color: var(--hold); background: var(--hold-wash); }
+.pill.SELL { color: var(--sell); background: var(--sell-wash); }
+.detail { padding: 22px; display: grid; gap: 18px; }
+.d-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: start; gap: 12px; }
+.d-head h2 { font-family: var(--font-display); font-stretch: 85%; font-weight: 700; font-size: 1.6rem; line-height: 1.1; margin: 0; text-wrap: balance; }
+.d-meta { color: var(--muted); font-size: 13px; margin-top: 4px; }
+.d-price { text-align: right; }
+.d-price .big { font-family: var(--font-data); font-size: 1.6rem; font-weight: 500; line-height: 1.1; }
+.verdict { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 8px; }
+.verdict.BUY { background: var(--buy-wash); } .verdict.HOLD { background: var(--hold-wash); } .verdict.SELL { background: var(--sell-wash); }
+.verdict .word { font-family: var(--font-display); font-stretch: 75%; font-weight: 800; font-size: 2rem; line-height: 1; letter-spacing: 0.02em; }
+.verdict.BUY .word { color: var(--buy); } .verdict.HOLD .word { color: var(--hold); } .verdict.SELL .word { color: var(--sell); }
+.verdict p { margin: 0; font-size: 14px; }
+.chart-tools { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+.legend i { display: inline-block; width: 14px; height: 2px; vertical-align: middle; margin-right: 5px; }
+.seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; }
+.seg button { font: 500 12px/1 var(--font-data); background: transparent; color: var(--muted); border: 0; padding: 7px 10px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--rule); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--sheet); }
+.seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.chart svg { display: block; width: 100%; height: auto; }
+.metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+@media (max-width: 560px) { .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.metric { background: var(--sheet); padding: 10px 12px; }
+.metric .k { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.metric .v { font-family: var(--font-data); font-size: 15px; margin-top: 2px; }
+h3 { font: 600 11px/1 var(--font-body); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 10px; }
+.reasons { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.reasons li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; align-items: start; }
+.vote { font: 700 12px/1 var(--font-data); width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; margin-top: 1px; }
+.vote.p { color: var(--buy); background: var(--buy-wash); }
+.vote.n { color: var(--sell); background: var(--sell-wash); }
+.vote.z { color: var(--muted); background: color-mix(in srgb, var(--muted) 14%, transparent); }
+.method { font-size: 13px; color: var(--muted); display: grid; gap: 6px; max-width: 80ch; }
+.method p { margin: 0; }
+.method b { color: var(--ink); font-weight: 600; }
+.note { font-size: 12px; color: var(--muted); }
+@media (prefers-reduced-motion: no-preference) { .chart path.price { transition: d 0.25s ease; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Stock Analyst</h1>
+      <p class="sub">Daily prices for a global watchlist, with a buy, hold or sell call for each stock and the reasons behind it.</p>
+    </div>
+    <div class="stamp" id="stamp"></div>
+  </header>
+
+  <section class="tally" aria-label="Signal summary">
+    <div class="tally-bar" id="tally-bar"></div>
+    <div class="tally-legend" id="tally-legend"></div>
+  </section>
+
+  <div class="grid">
+    <section class="panel ledger" aria-label="Watchlist">
+      <table>
+        <thead><tr><th>Stock</th><th class="num">Last</th><th class="num c-1d">1 day</th><th class="num">3 mo</th><th>Call</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </section>
+    <section class="panel detail" id="detail" aria-live="polite"></section>
+  </div>
+
+  <section class="method" aria-label="How the call is made">
+    <h3>How the call is made</h3>
+    <p>Four rules each vote <b>+1</b> (buy), <b>0</b> or <b>&minus;1</b> (sell): price against its 200-day average, the 50-day average against the 200-day, the three-month return (&plusmn;10% counts), and the 14-day RSI (above 70 is overbought, below 30 oversold). A total of <b>+2 or more is BUY</b>, <b>&minus;2 or less is SELL</b>, anything between is HOLD. Rules without enough history are skipped.</p>
+    <p id="source-note"></p>
+    <p>This is a rules-of-thumb technical screen for personal research, not financial advice. It ignores valuation, earnings and news.</p>
+  </section>
+</div>
+
+<script>
+const DATA = /*__DATA__*/null;
+
+const $ = (id) => document.getElementById(id);
+const fmt = (v, cur) => v == null ? "–" : v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + (cur ? " " + cur : "");
+const pct = (v, digits = 1) => v == null ? "–" : (v >= 0 ? "+" : "−") + Math.abs(v * 100).toFixed(digits) + "%";
+const cls = (v) => v == null ? "" : v >= 0 ? "up" : "down";
+const ACTION_TEXT = {
+  BUY: "Trend and momentum line up in its favour.",
+  HOLD: "The signals are mixed, so there is no strong case either way.",
+  SELL: "Trend and momentum are working against it.",
+};
+const RANGES = [["3M", 63], ["6M", 126], ["1Y", 260]];
+let selected = 0;
+let range = "6M";
+try { range = localStorage.getItem("sa-range") || range; } catch (e) {}
+
+function renderHeader() {
+  $("stamp").innerHTML = `Prices as of <b>${DATA.as_of}</b><br>${DATA.stocks.length} stocks · ${new Set(DATA.stocks.map(s => s.currency)).size} currencies`;
+  $("source-note").textContent = DATA.note || "";
+  const counts = { BUY: 0, HOLD: 0, SELL: 0 };
+  DATA.stocks.forEach(s => counts[s.rec.action]++);
+  const n = DATA.stocks.length;
+  $("tally-bar").innerHTML = ["BUY", "HOLD", "SELL"].map(a =>
+    `<span style="width:${counts[a] / n * 100}%;background:var(--${a.toLowerCase()})" title="${counts[a]} ${a}"></span>`).join("");
+  $("tally-legend").innerHTML = ["BUY", "HOLD", "SELL"].map(a =>
+    `<span><b>${counts[a]}</b>${a.toLowerCase()}</span>`).join("");
+}
+
+function renderRows() {
+  $("rows").innerHTML = DATA.stocks.map((s, i) => {
+    const c = s.close, last = c[c.length - 1], prev = c[c.length - 2];
+    const d1 = prev ? last / prev - 1 : null;
+    return `<tr tabindex="0" data-i="${i}" aria-selected="${i === selected}">
+      <td><div class="nm">${s.name}</div><div class="sym">${s.symbol}</div></td>
+      <td class="num mono">${fmt(last)}<div class="sym">${s.currency}</div></td>
+      <td class="num mono c-1d ${cls(d1)}">${pct(d1)}</td>
+      <td class="num mono ${cls(s.rec.metrics.return_3m)}">${pct(s.rec.metrics.return_3m, 0)}</td>
+      <td><span class="pill ${s.rec.action}">${s.rec.action}</span></td></tr>`;
+  }).join("");
+  $("rows").querySelectorAll("tr").forEach(tr => {
+    const pick = () => {
+      selected = +tr.dataset.i; renderRows(); renderDetail();
+      if (window.matchMedia("(max-width: 900px)").matches) $("detail").scrollIntoView({ block: "start" });
+    };
+    tr.addEventListener("click", pick);
+    tr.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } });
+  });
+}
+
+function niceTicks(lo, hi, count) {
+  const span = hi - lo, step0 = span / count, mag = 10 ** Math.floor(Math.log10(step0));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => s >= step0);
+  const ticks = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) ticks.push(+v.toFixed(6));
+  return ticks;
+}
+
+function chartSVG(s) {
+  const box = $("detail").clientWidth - 44;
+  const W = Math.round(Math.min(680, Math.max(300, box || 680))), H = W < 500 ? 230 : 280, L = 8, R = 52, T = 12, B = 26;
+  const want = RANGES.find(r => r[0] === range)[1];
+  const n = s.close.length, start = Math.max(0, n - want);
+  const idx = [...Array(n - start).keys()].map(k => k + start);
+  const series = [s.close, s.sma50, s.sma200];
+  const vals = idx.flatMap(i => series.map(a => a[i]).filter(v => v != null));
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  const pad = (hi - lo) * 0.06 || 1; lo -= pad; hi += pad;
+  const x = k => L + (k / Math.max(1, idx.length - 1)) * (W - L - R);
+  const y = v => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+  const line = a => {
+    let d = "", pen = false;
+    idx.forEach((i, k) => {
+      const v = a[i];
+      if (v == null) { pen = false; return; }
+      d += (pen ? "L" : "M") + x(k).toFixed(1) + " " + y(v).toFixed(1); pen = true;
+    });
+    return d;
+  };
+  const ticks = niceTicks(lo, hi, 4);
+  const grid = ticks.map(t => `<line x1="${L}" x2="${W - R}" y1="${y(t).toFixed(1)}" y2="${y(t).toFixed(1)}" stroke="var(--rule)" stroke-width="1"/>
+    <text x="${W - R + 8}" y="${(y(t) + 4).toFixed(1)}" font-size="11" font-family="var(--font-data)" fill="var(--muted)">${t.toLocaleString("en-US")}</text>`).join("");
+  // month labels along the bottom
+  let months = "", lastM = "", lastX = -1e9;
+  idx.forEach((i, k) => {
+    const m = s.dates[i].slice(0, 7);
+    if (m !== lastM) {
+      lastM = m;
+      if (k > 2 && x(k) < W - R - 20 && x(k) - lastX > 56) {
+        lastX = x(k);
+        const label = new Date(s.dates[i] + "T00:00:00Z").toLocaleString("en-US", { month: "short", timeZone: "UTC" });
+        months += `<text x="${x(k).toFixed(1)}" y="${H - 6}" font-size="11" font-family="var(--font-body)" fill="var(--muted)" text-anchor="middle">${label}</text>`;
+      }
+    }
+  });
+  const priceD = line(s.close);
+  const lastK = idx.length - 1, lastV = s.close[n - 1];
+  const area = priceD + `L${x(lastK).toFixed(1)} ${H - B}L${x(0).toFixed(1)} ${H - B}Z`;
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${s.name} price chart, ${range}">
+    ${grid}${months}
+    <path d="${area}" fill="var(--ink)" fill-opacity="0.05" stroke="none"/>
+    <path d="${line(s.sma200)}" fill="none" stroke="var(--sma200)" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <path d="${line(s.sma50)}" fill="none" stroke="var(--sma50)" stroke-width="1.5"/>
+    <path class="price" d="${priceD}" fill="none" stroke="var(--ink)" stroke-width="2" stroke-linejoin="round"/>
+    <circle cx="${x(lastK).toFixed(1)}" cy="${y(lastV).toFixed(1)}" r="4" fill="var(--ink)" stroke="var(--sheet)" stroke-width="2"/>
+  </svg>`;
+}
+
+function renderDetail() {
+  const s = DATA.stocks[selected], r = s.rec, m = r.metrics;
+  const c = s.close, last = c[c.length - 1], prev = c[c.length - 2], d1 = prev ? last / prev - 1 : null;
+  const vsLong = m.sma200 ? last / m.sma200 - 1 : null;
+  const voteMark = v => v > 0 ? `<span class="vote p" aria-label="supports buying">+</span>`
+    : v < 0 ? `<span class="vote n" aria-label="supports selling">−</span>`
+    : `<span class="vote z" aria-label="context">·</span>`;
+  $("detail").innerHTML = `
+    <div class="d-head">
+      <div>
+        <h2>${s.name}</h2>
+        <div class="d-meta"><span class="mono">${s.symbol}</span> · ${s.listing}${s.quoted_as && s.quoted_as !== s.symbol ? ` · quoted as <span class="mono">${s.quoted_as}</span>` : ""}</div>
+      </div>
+      <div class="d-price">
+        <div class="big">${fmt(last)}</div>
+        <div class="mono ${cls(d1)}">${s.currency} · ${pct(d1, 2)} today</div>
+      </div>
+    </div>
+    <div class="verdict ${r.action}">
+      <div class="word">${r.action}</div>
+      <p>Score <b class="mono">${r.score > 0 ? "+" : ""}${r.score}</b> of ±${r.max_score}. ${ACTION_TEXT[r.action]}</p>
+    </div>
+    <div>
+      <div class="chart-tools">
+        <div class="legend"><span><i style="background:var(--ink)"></i>Close</span><span><i style="background:var(--sma50)"></i>50-day avg</span><span><i style="background:var(--sma200);height:0;border-top:2px dashed var(--sma200)"></i>200-day avg</span></div>
+        <div class="seg" role="group" aria-label="Chart range">${RANGES.map(([k]) => `<button type="button" data-r="${k}" aria-pressed="${k === range}">${k}</button>`).join("")}</div>
+      </div>
+      <div class="chart">${chartSVG(s)}</div>
+    </div>
+    <div class="metrics">
+      <div class="metric"><div class="k">vs 200-day</div><div class="v ${cls(vsLong)}">${vsLong == null ? "n/a" : pct(vsLong)}</div></div>
+      <div class="metric"><div class="k">RSI (14)</div><div class="v">${m.rsi14.toFixed(0)}</div></div>
+      <div class="metric"><div class="k">3-month</div><div class="v ${cls(m.return_3m)}">${pct(m.return_3m)}</div></div>
+      <div class="metric"><div class="k">${m.range_label} range</div><div class="v">${fmt(m.low_52w)}–${fmt(m.high_52w)}</div></div>
+    </div>
+    <div>
+      <h3>Why ${r.action.toLowerCase()}</h3>
+      <ul class="reasons">${r.reasons.map(x => `<li>${voteMark(x.vote)}<span>${x.text}</span></li>`).join("")}</ul>
+    </div>
+    <div class="note">${s.days_note}</div>`;
+  $("detail").querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => {
+    range = b.dataset.r;
+    try { localStorage.setItem("sa-range", range); } catch (e) {}
+    renderDetail();
+  }));
+}
+
+renderHeader();
+renderRows();
+renderDetail();
+let lastW = window.innerWidth;
+window.addEventListener("resize", () => { if (Math.abs(window.innerWidth - lastW) > 40) { lastW = window.innerWidth; renderDetail(); } });
+</script>

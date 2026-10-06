@@ -22,5 +22,8 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 packages = ["stock_analyst"]
 
+[tool.setuptools.package-data]
+stock_analyst = ["report_template.html"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
