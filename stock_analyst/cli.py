@@ -1,4 +1,4 @@
-"""Command line: stock-analyst fetch | prices | show SYMBOL"""
+"""Command line: stock-analyst fetch | prices | show SYMBOL | signals | report"""
 
 from __future__ import annotations
 
@@ -7,6 +7,8 @@ import logging
 import sys
 from pathlib import Path
 
+from . import report
+from .signals import analyze
 from .sources import YFinanceSource
 from .store import DEFAULT_DB_PATH, PriceStore
 from .update import update_prices
@@ -27,15 +29,28 @@ def main(argv: list[str] | None = None) -> int:
     show = sub.add_parser("show", help="recent daily bars for one symbol")
     show.add_argument("symbol")
     show.add_argument("--days", type=int, default=10)
+    sub.add_parser("signals", help="buy / hold / sell call with reasons for each stock")
+    rep = sub.add_parser("report", help="write the one-page HTML dashboard")
+    rep.add_argument("-o", "--output", type=Path, default=Path("report.html"))
+    rep.add_argument("--snapshot", type=Path, help="build from a saved price snapshot JSON instead of the database")
+    rep.add_argument("--fragment", action="store_true", help="omit the <html> wrapper")
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
+
+    if args.command == "report" and args.snapshot:
+        stocks, meta = report.from_snapshot(args.snapshot)
+        return _write_report(args, report.build_payload(stocks, meta.get("as_of"), meta.get("note", "")))
 
     with PriceStore(args.db) as store:
         if args.command == "fetch":
             return _fetch(args, store)
         if args.command == "prices":
             return _prices(store)
+        if args.command == "signals":
+            return _signals(args, store)
+        if args.command == "report":
+            return _report(args, store)
         return _show(args, store)
 
 
@@ -75,6 +90,47 @@ def _show(args, store: PriceStore) -> int:
         print(f"No prices stored for {args.symbol.upper()}")
         return 1
     print(df.tail(args.days).drop(columns="symbol").to_string())
+    return 0
+
+
+def _stored_series(args, store: PriceStore) -> list[report.StockSeries] | None:
+    try:
+        watchlist = load_watchlist(args.watchlist)
+    except WatchlistError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return None
+    stocks = report.from_store(store, watchlist)
+    if not stocks:
+        print("No prices stored yet. Run: stock-analyst fetch")
+        return None
+    return stocks
+
+
+def _signals(args, store: PriceStore) -> int:
+    stocks = _stored_series(args, store)
+    if stocks is None:
+        return 1
+    for s in stocks:
+        rec = analyze(s.closes)
+        print(f"{s.symbol:<14} {rec.action:<5} score {rec.score:+d}  {s.name}")
+        for r in rec.reasons:
+            mark = {1: "+", -1: "-", 0: " "}[r.vote]
+            print(f"    {mark} {r.text}")
+    return 0
+
+
+def _report(args, store: PriceStore) -> int:
+    stocks = _stored_series(args, store)
+    if stocks is None:
+        return 1
+    return _write_report(args, report.build_payload(stocks, note="Daily closes from Yahoo Finance."))
+
+
+def _write_report(args, payload: dict) -> int:
+    args.output.write_text(report.render_html(payload, fragment=args.fragment), encoding="utf-8")
+    counts = {a: sum(s["rec"]["action"] == a for s in payload["stocks"]) for a in ("BUY", "HOLD", "SELL")}
+    print(f"Wrote {args.output}: {len(payload['stocks'])} stocks, "
+          f"{counts['BUY']} buy / {counts['HOLD']} hold / {counts['SELL']} sell")
     return 0
 
 
