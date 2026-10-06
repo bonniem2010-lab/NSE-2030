@@ -1,0 +1,48 @@
+# Your watchlist. Symbols use Yahoo Finance format:
+#   US: AAPL   London: SHEL.L   Tokyo: 7203.T   Frankfurt: SAP.DE
+#   Hong Kong: 0700.HK   India (NSE): RELIANCE.NS   Johannesburg: NPN.JO
+# Add or remove [[stocks]] entries, then run: stock-analyst fetch
+
+[settings]
+# How far back to load the first time a symbol is fetched.
+history_days = 730
+
+[[stocks]]
+symbol = "AAPL"
+name = "Apple"
+
+[[stocks]]
+symbol = "MSFT"
+name = "Microsoft"
+
+[[stocks]]
+symbol = "NVDA"
+name = "NVIDIA"
+
+[[stocks]]
+symbol = "SHEL.L"
+name = "Shell"
+
+[[stocks]]
+symbol = "ASML.AS"
+name = "ASML"
+
+[[stocks]]
+symbol = "SAP.DE"
+name = "SAP"
+
+[[stocks]]
+symbol = "7203.T"
+name = "Toyota"
+
+[[stocks]]
+symbol = "0700.HK"
+name = "Tencent"
+
+[[stocks]]
+symbol = "RELIANCE.NS"
+name = "Reliance Industries"
+
+[[stocks]]
+symbol = "NPN.JO"
+name = "Naspers"
