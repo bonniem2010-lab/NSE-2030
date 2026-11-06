@@ -81,5 +81,7 @@ def _update_fundamentals(symbol: str, store: PriceStore, source) -> str | None:
         return f"{type(exc).__name__}: {exc}"
     if not metrics:
         return None
-    store.upsert_fundamentals(symbol, metrics, getattr(source, "source_name", lambda _s: source.name)(symbol))
+    origin = getattr(source, "fundamentals_source", lambda _s: None)(symbol)
+    origin = origin or getattr(source, "source_name", lambda _s: source.name)(symbol)
+    store.upsert_fundamentals(symbol, metrics, origin)
     return "ok"

@@ -103,6 +103,9 @@ class FinancialDatasetsSource:
             url += "?" + urllib.parse.urlencode(params)
         return self._get(url, {"X-API-KEY": self.api_key, "Accept": "application/json"})
 
+    def covers(self, symbol: str) -> bool:
+        return is_us_symbol(symbol)
+
     def fetch(self, symbol: str, start: date, end: date) -> pd.DataFrame:
         data = self._request(
             "/prices/",

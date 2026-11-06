@@ -121,6 +121,10 @@ class PriceStore:
         metrics["updated_at"] = row[1]
         return metrics
 
+    def fundamentals_sources(self) -> set[str]:
+        """Names of the sources behind the stored fundamentals snapshots."""
+        return {row[0] for row in self.conn.execute("SELECT DISTINCT source FROM fundamentals") if row[0]}
+
     def log_fetch(self, symbol: str, rows: int, error: str | None = None) -> None:
         with self.conn:
             self.conn.execute(

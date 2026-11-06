@@ -52,6 +52,37 @@ saves a fundamentals snapshot (P/E, PEG, P/B, EV/EBITDA, margins, return on equi
 debt-to-equity, revenue and earnings growth) in the `fundamentals` table. A failed fundamentals
 request is reported but never blocks the price update.
 
+### More data sources: EODHD and Alpha Vantage (non-US markets)
+
+Yahoo Finance is free but unofficial and sometimes breaks. Two keyed sources cover the
+exchanges it is most needed for. Set whichever keys you have; `stock-analyst fetch` (auto)
+uses every source with a key, and each symbol goes to the first source that covers it. If
+that source fails, the next one is tried, so one outage never empties a watchlist row.
+
+Order in auto mode: Financial Datasets (US only) → EODHD → Yahoo Finance → Alpha Vantage.
+
+| Source | Key variable | Covers | Free plan |
+|---|---|---|---|
+| [EODHD](https://eodhd.com) | `EODHD_API_KEY` | US, London, XETRA, Frankfurt, Amsterdam, Paris, Milan, Madrid, Tokyo, Hong Kong, NSE, BSE, Johannesburg, Toronto, ASX, SIX, Korea, Shanghai, Shenzhen | 20 calls/day, last year of prices |
+| [Alpha Vantage](https://www.alphavantage.co) | `ALPHA_VANTAGE_API_KEY` | US, London, XETRA, Toronto, BSE, Shanghai, Shenzhen (not Tokyo, Hong Kong, NSE or Johannesburg) | ~25 calls/day, last 100 days |
+
+```bash
+export EODHD_API_KEY=your-key
+export EODHD_FUNDAMENTALS=1                # optional, needs an EODHD plan with fundamentals
+stock-analyst fetch                        # auto: every configured source, with fallback
+stock-analyst fetch --source eodhd         # EODHD first, then Yahoo; error if the key is missing
+stock-analyst fetch --source alphavantage  # Alpha Vantage first, then Yahoo
+```
+
+Keep writing symbols in Yahoo format; they are translated per source (`SHEL.L` becomes
+`SHEL.LSE` for EODHD and `SHEL.LON` for Alpha Vantage). London prices are in pence (`GBp`)
+and Johannesburg prices in cents (`ZAc`), as on Yahoo.
+
+With `EODHD_FUNDAMENTALS=1`, non-US stocks get the same valuation and growth rules as US
+stocks (P/E, PEG, revenue growth, margins, return on equity). It is off by default because
+each fundamentals request spends quota and the free plan does not include them. The report
+footer names the providers that supplied the stored data.
+
 ### How the call is made
 
 `stock_analyst/signals.py` runs four rules on daily closes. Each votes +1 (buy), 0, or -1 (sell):

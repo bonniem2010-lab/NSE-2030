@@ -191,7 +191,8 @@ def test_valuation_without_peg_uses_pe_and_losses_count_against():
 
 
 def test_cli_source_selection(monkeypatch, capsys, tmp_path):
-    monkeypatch.delenv(API_KEY_ENV, raising=False)
+    for env in (API_KEY_ENV, "EODHD_API_KEY", "ALPHA_VANTAGE_API_KEY"):
+        monkeypatch.delenv(env, raising=False)
     assert cli.make_source("auto").name == "yfinance"
     assert cli.make_source("auto", api_key="k").name == "financialdatasets+yfinance"
     wl = tmp_path / "w.toml"
