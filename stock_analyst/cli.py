@@ -9,6 +9,13 @@ from pathlib import Path
 
 from . import report
 from .signals import analyze
+from .financialdatasets import (
+    API_KEY_ENV,
+    FinancialDatasetsError,
+    FinancialDatasetsSource,
+    RoutedSource,
+    api_key_from_env,
+)
 from .sources import YFinanceSource
 from .store import DEFAULT_DB_PATH, PriceStore
 from .update import update_prices
@@ -25,6 +32,13 @@ def main(argv: list[str] | None = None) -> int:
 
     fetch = sub.add_parser("fetch", help="download new daily prices for the watchlist")
     fetch.add_argument("--full", action="store_true", help="re-download full history")
+    fetch.add_argument(
+        "--source",
+        choices=("auto", "yfinance", "financialdatasets"),
+        default="auto",
+        help=f"auto (default): Financial Datasets for US stocks when {API_KEY_ENV} is set, "
+        "Yahoo Finance for the rest; yfinance: Yahoo only; financialdatasets: require the key",
+    )
     sub.add_parser("prices", help="latest close and daily change for each stock")
     show = sub.add_parser("show", help="recent daily bars for one symbol")
     show.add_argument("symbol")
@@ -60,13 +74,33 @@ def _fetch(args, store: PriceStore) -> int:
     except WatchlistError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    results = update_prices(watchlist, store, YFinanceSource(), full=args.full)
+    try:
+        source = make_source(args.source)
+    except FinancialDatasetsError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"Source: {source.name}")
+    results = update_prices(watchlist, store, source, full=args.full)
     for r in results:
         status = f"{r.rows} rows from {r.start}" if r.ok else f"FAILED ({r.error})"
+        if r.fundamentals == "ok":
+            status += ", fundamentals updated"
+        elif r.fundamentals:
+            status += f", fundamentals FAILED ({r.fundamentals})"
         print(f"{r.symbol:<14} {status}")
     failed = [r for r in results if not r.ok]
     print(f"\n{len(results) - len(failed)}/{len(results)} symbols updated -> {args.db}")
     return 1 if failed and len(failed) == len(results) else 0
+
+
+def make_source(choice: str, api_key: str | None = None):
+    """Build the price source for ``fetch``. Financial Datasets covers US tickers only."""
+    if choice == "yfinance":
+        return YFinanceSource()
+    key = api_key or api_key_from_env()
+    if choice == "auto" and not key:
+        return YFinanceSource()
+    return RoutedSource(FinancialDatasetsSource(key), YFinanceSource())
 
 
 def _prices(store: PriceStore) -> int:
@@ -111,7 +145,7 @@ def _signals(args, store: PriceStore) -> int:
     if stocks is None:
         return 1
     for s in stocks:
-        rec = analyze(s.closes)
+        rec = analyze(s.closes, s.fundamentals)
         print(f"{s.symbol:<14} {rec.action:<5} score {rec.score:+d}  {s.name}")
         for r in rec.reasons:
             mark = {1: "+", -1: "-", 0: " "}[r.vote]
@@ -123,7 +157,18 @@ def _report(args, store: PriceStore) -> int:
     stocks = _stored_series(args, store)
     if stocks is None:
         return 1
-    return _write_report(args, report.build_payload(stocks, note="Daily closes from Yahoo Finance."))
+    return _write_report(args, report.build_payload(stocks, note=_note(store)))
+
+
+def _note(store: PriceStore) -> str:
+    sources = set(store.securities()["source"].dropna())
+    parts = []
+    if any("financialdatasets" in s for s in sources):
+        parts.append("US prices and fundamentals from Financial Datasets")
+    if "yfinance" in sources or not parts:
+        parts.append("daily closes from Yahoo Finance")
+    text = "; ".join(parts)
+    return text[0].upper() + text[1:] + "."
 
 
 def _write_report(args, payload: dict) -> int:

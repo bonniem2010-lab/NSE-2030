@@ -1,11 +1,12 @@
 """Buy / hold / sell calls from daily closes, each backed by plain-English reasons.
 
 Every rule looks at one thing (long-term trend, medium-term trend, momentum,
-overbought/oversold) and votes +1, 0 or -1. The votes add up to a score:
+overbought/oversold, and, when fundamentals are available, valuation and
+growth) and votes +1, 0 or -1. The votes add up to a score:
 +2 or more is a BUY, -2 or less is a SELL, anything between is a HOLD.
 Rules that need more history than is available are skipped and say so.
 
-This is a rules-of-thumb technical screen, not financial advice.
+This is a rules-of-thumb screen, not financial advice.
 """
 
 from __future__ import annotations
@@ -25,6 +26,14 @@ RSI_DAYS = 14
 MOMENTUM_BAND = 0.10  # +/-10% over three months counts as strong momentum
 RSI_HIGH = 70
 RSI_LOW = 30
+# Valuation: PEG (P/E divided by earnings growth) when available, otherwise plain P/E.
+PEG_CHEAP = 1.0
+PEG_RICH = 2.5
+PE_CHEAP = 15.0
+PE_RICH = 40.0
+# Growth: year-on-year revenue growth.
+GROWTH_STRONG = 0.10
+SCORED_RULES = {"long_trend", "medium_trend", "momentum", "rsi", "valuation", "growth"}
 
 
 @dataclass(frozen=True)
@@ -62,16 +71,83 @@ def rsi(closes: pd.Series, days: int = RSI_DAYS) -> pd.Series:
     return out.where(loss != 0, 100.0)
 
 
-def analyze(closes: pd.Series) -> Recommendation:
-    """Recommend BUY, HOLD or SELL for one stock from its daily closes, oldest first."""
+def fundamental_reasons(f: dict | None) -> list[Reason]:
+    """Valuation and growth votes from a fundamentals snapshot (decimals: 0.12 = 12%)."""
+    if not f:
+        return []
+    reasons: list[Reason] = []
+    pe = f.get("price_to_earnings_ratio")
+    peg = f.get("peg_ratio")
+
+    # 5. Valuation.
+    if pe is not None and pe <= 0:
+        reasons.append(Reason("valuation", -1,
+            "Unprofitable: earnings over the last year are negative, so there is no "
+            "P/E to support the price."))
+    elif peg is not None and peg > 0 and pe is not None:
+        if peg <= PEG_CHEAP:
+            reasons.append(Reason("valuation", 1,
+                f"Cheap for its growth: P/E of {pe:.0f} with a PEG of {peg:.1f} "
+                f"(at or below {PEG_CHEAP:.0f})."))
+        elif peg >= PEG_RICH:
+            reasons.append(Reason("valuation", -1,
+                f"Expensive for its growth: P/E of {pe:.0f} with a PEG of {peg:.1f} "
+                f"(above {PEG_RICH})."))
+        else:
+            reasons.append(Reason("valuation", 0,
+                f"Fairly valued for its growth: P/E of {pe:.0f}, PEG {peg:.1f}."))
+    elif pe is not None:
+        if pe <= PE_CHEAP:
+            reasons.append(Reason("valuation", 1,
+                f"Cheap on earnings: P/E of {pe:.0f} (at or below {PE_CHEAP:.0f})."))
+        elif pe >= PE_RICH:
+            reasons.append(Reason("valuation", -1,
+                f"Expensive on earnings: P/E of {pe:.0f} (above {PE_RICH:.0f})."))
+        else:
+            reasons.append(Reason("valuation", 0, f"P/E of {pe:.0f}, neither cheap nor expensive."))
+
+    # 6. Growth.
+    growth = f.get("revenue_growth")
+    if growth is not None:
+        if growth >= GROWTH_STRONG:
+            reasons.append(Reason("growth", 1, f"Growing: revenue up {growth:.0%} on a year ago."))
+        elif growth < 0:
+            reasons.append(Reason("growth", -1, f"Shrinking: revenue down {-growth:.0%} on a year ago."))
+        else:
+            reasons.append(Reason("growth", 0, f"Slow growth: revenue up {growth:.0%} on a year ago."))
+
+    # Context only: profitability and debt.
+    context = []
+    if f.get("net_margin") is not None:
+        context.append(f"net margin {f['net_margin']:.0%}")
+    if f.get("return_on_equity") is not None:
+        context.append(f"return on equity {f['return_on_equity']:.0%}")
+    if f.get("debt_to_equity") is not None:
+        context.append(f"debt-to-equity {f['debt_to_equity']:.1f}")
+    if f.get("free_cash_flow_yield") is not None:
+        context.append(f"free-cash-flow yield {f['free_cash_flow_yield']:.1%}")
+    if context:
+        reasons.append(Reason("quality", 0, "Fundamentals: " + ", ".join(context) + "."))
+    return reasons
+
+
+def analyze(closes: pd.Series, fundamentals: dict | None = None) -> Recommendation:
+    """Recommend BUY, HOLD or SELL for one stock from its daily closes, oldest first.
+
+    ``fundamentals`` is an optional snapshot (see ``financialdatasets.FUNDAMENTAL_FIELDS``)
+    that adds valuation and growth votes.
+    """
     closes = closes.dropna().astype(float)
     if len(closes) < MEDIUM_WINDOW:
+        # Too little history for any price rule; fundamentals are shown but the call stays HOLD.
         return Recommendation(
             "HOLD",
             0,
             0,
             (Reason("history", 0, f"Only {len(closes)} days of prices; need at least "
-                    f"{MEDIUM_WINDOW} to judge the trend."),),
+                    f"{MEDIUM_WINDOW} to judge the trend, so no call is made."),
+             *(Reason(r.rule, 0, r.text)
+               for r in fundamental_reasons(fundamentals))),
             {"price": float(closes.iloc[-1]) if len(closes) else None},
         )
 
@@ -155,8 +231,10 @@ def analyze(closes: pd.Series) -> Recommendation:
     else:
         reasons.append(Reason("range", 0, f"{-from_high:.0%} below its {span} high."))
 
+    reasons.extend(fundamental_reasons(fundamentals))
+
     score = sum(r.vote for r in reasons)
-    max_score = sum(1 for r in reasons if r.rule in {"long_trend", "medium_trend", "momentum", "rsi"}
+    max_score = sum(1 for r in reasons if r.rule in SCORED_RULES
                     and not (r.rule == "long_trend" and sma200 is None))
     if score >= BUY_THRESHOLD:
         action = "BUY"
@@ -175,5 +253,8 @@ def analyze(closes: pd.Series) -> Recommendation:
         "low_52w": low,
         "range_label": span,
         "days": len(closes),
+        "pe": (fundamentals or {}).get("price_to_earnings_ratio"),
+        "peg": (fundamentals or {}).get("peg_ratio"),
+        "revenue_growth": (fundamentals or {}).get("revenue_growth"),
     }
     return Recommendation(action, score, max_score, tuple(reasons), metrics)

@@ -138,9 +138,9 @@ h3 { font: 600 11px/1 var(--font-body); text-transform: uppercase; letter-spacin
 
   <section class="method" aria-label="How the call is made">
     <h3>How the call is made</h3>
-    <p>Four rules each vote <b>+1</b> (buy), <b>0</b> or <b>&minus;1</b> (sell): price against its 200-day average, the 50-day average against the 200-day, the three-month return (&plusmn;10% counts), and the 14-day RSI (above 70 is overbought, below 30 oversold). A total of <b>+2 or more is BUY</b>, <b>&minus;2 or less is SELL</b>, anything between is HOLD. Rules without enough history are skipped.</p>
+    <p>Four rules each vote <b>+1</b> (buy), <b>0</b> or <b>&minus;1</b> (sell): price against its 200-day average, the 50-day average against the 200-day, the three-month return (&plusmn;10% counts), and the 14-day RSI (above 70 is overbought, below 30 oversold). A total of <b>+2 or more is BUY</b>, <b>&minus;2 or less is SELL</b>, anything between is HOLD. Rules without enough history are skipped. When fundamentals are available (US stocks via Financial Datasets), two more rules vote: <b>valuation</b> (PEG at or below 1 is cheap, 2.5 or more is expensive; without a PEG, P/E at or below 15 is cheap and 40 or more expensive; losses count against) and <b>growth</b> (revenue up 10%+ on a year ago, or shrinking).</p>
     <p id="source-note"></p>
-    <p>This is a rules-of-thumb technical screen for personal research, not financial advice. It ignores valuation, earnings and news.</p>
+    <p>This is a rules-of-thumb screen for personal research, not financial advice. It ignores news, and valuation is only scored where fundamentals were fetched.</p>
   </section>
 </div>
 

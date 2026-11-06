@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -30,6 +31,12 @@ CREATE TABLE IF NOT EXISTS securities (
     currency    TEXT,
     source      TEXT,
     updated_at  TEXT                  -- UTC ISO timestamp of last successful fetch
+);
+CREATE TABLE IF NOT EXISTS fundamentals (
+    symbol      TEXT PRIMARY KEY,
+    metrics     TEXT NOT NULL,        -- JSON object of ratios (decimals: 0.12 = 12%)
+    source      TEXT,
+    updated_at  TEXT
 );
 CREATE TABLE IF NOT EXISTS fetch_log (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -96,6 +103,23 @@ class PriceStore:
                 """,
                 (symbol, name, currency, source, _now()),
             )
+
+    def upsert_fundamentals(self, symbol: str, metrics: dict, source: str) -> None:
+        with self.conn:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO fundamentals VALUES (?, ?, ?, ?)",
+                (symbol, json.dumps(metrics, sort_keys=True), source, _now()),
+            )
+
+    def get_fundamentals(self, symbol: str) -> dict | None:
+        row = self.conn.execute(
+            "SELECT metrics, updated_at FROM fundamentals WHERE symbol = ?", (symbol,)
+        ).fetchone()
+        if row is None:
+            return None
+        metrics = json.loads(row[0])
+        metrics["updated_at"] = row[1]
+        return metrics
 
     def log_fetch(self, symbol: str, rows: int, error: str | None = None) -> None:
         with self.conn:

@@ -7,7 +7,7 @@ Planned steps:
 
 1. **Price data and watchlist**: a configurable watchlist of global
    tickers, daily prices from Yahoo Finance via `yfinance`, stored in SQLite.
-2. **Buy/hold/sell signals with reasons** (trend and momentum; valuation later).
+2. **Buy/hold/sell signals with reasons** (trend, momentum, and valuation/growth for US stocks).
 3. **A one-page dashboard** (`stock-analyst report`).
 4. A scheduled daily refresh.
 
@@ -33,6 +33,25 @@ stock-analyst signals        # buy / hold / sell call with reasons per stock
 stock-analyst report         # write report.html: watchlist, charts, calls and reasons
 ```
 
+### Financial Datasets API (US prices and fundamentals)
+
+The app can pull data straight from [Financial Datasets](https://financialdatasets.ai)
+("Financial Data API for AI Agents"). Create an API key on their site, then set it in your
+shell before fetching. The key is only read from the environment, never saved:
+
+```bash
+export FINANCIAL_DATASETS_API_KEY=your-key      # Windows PowerShell: $env:FINANCIAL_DATASETS_API_KEY="your-key"
+stock-analyst fetch                             # auto: Financial Datasets for US tickers, Yahoo for the rest
+stock-analyst fetch --source financialdatasets  # same routing, but stop with an error if the key is missing
+stock-analyst fetch --source yfinance           # Yahoo Finance only
+```
+
+Financial Datasets covers US-listed tickers, so symbols with an exchange suffix (`SHEL.L`,
+`7203.T`, `RELIANCE.NS`) keep coming from Yahoo Finance. For each US ticker, `fetch` also
+saves a fundamentals snapshot (P/E, PEG, P/B, EV/EBITDA, margins, return on equity,
+debt-to-equity, revenue and earnings growth) in the `fundamentals` table. A failed fundamentals
+request is reported but never blocks the price update.
+
 ### How the call is made
 
 `stock_analyst/signals.py` runs four rules on daily closes. Each votes +1 (buy), 0, or -1 (sell):
@@ -43,6 +62,16 @@ stock-analyst report         # write report.html: watchlist, charts, calls and r
 | Medium-term trend | 50-day average above the 200-day | below it |
 | Momentum | up 10%+ over three months | down 10%+ |
 | RSI (14 days) | below 30 (oversold) | above 70 (overbought) |
+
+When a fundamentals snapshot is stored (US stocks fetched from Financial Datasets), two more
+rules vote:
+
+| Rule | +1 | -1 |
+|---|---|---|
+| Valuation | PEG at or below 1 (or, without a PEG, P/E at or below 15) | PEG 2.5+ (or P/E 40+), or negative earnings |
+| Growth | revenue up 10%+ on a year ago | revenue shrinking |
+
+Margins, return on equity, debt and free-cash-flow yield are listed as context without a vote.
 
 A total of +2 or more is **BUY**, -2 or less is **SELL**, anything else is **HOLD**. Rules
 without enough history are skipped (the 200-day rules need 200 trading days). Every call
@@ -72,7 +101,7 @@ Read prices through `stock_analyst.store.PriceStore`:
 - `securities()`: name, trading currency, and coverage per symbol.
 
 Tables: `prices(symbol, date, open, high, low, close, adj_close, volume)`,
-`securities(symbol, name, currency, source, updated_at)`, and `fetch_log`.
+`securities(symbol, name, currency, source, updated_at)`, `fundamentals(symbol, metrics JSON, source, updated_at)`, and `fetch_log`. Read fundamentals with `PriceStore.get_fundamentals(symbol)`.
 Prices are in each stock's own trading currency; dates are exchange-local trading days.
 
 ## Tests

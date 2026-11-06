@@ -22,6 +22,7 @@ class FetchResult:
     rows: int
     start: date
     error: str | None = None
+    fundamentals: str | None = None  # "ok", an error message, or None when not fetched
 
     @property
     def ok(self) -> bool:
@@ -57,9 +58,28 @@ def update_prices(
             results.append(FetchResult(stock.symbol, 0, start, error))
             continue
 
+        source_name = getattr(source, "source_name", lambda _s: source.name)(stock.symbol)
         store.upsert_security(
-            stock.symbol, stock.name, source.currency(stock.symbol), source.name
+            stock.symbol, stock.name, source.currency(stock.symbol), source_name
         )
         store.log_fetch(stock.symbol, rows)
-        results.append(FetchResult(stock.symbol, rows, start))
+        results.append(
+            FetchResult(stock.symbol, rows, start, fundamentals=_update_fundamentals(stock.symbol, store, source))
+        )
     return results
+
+
+def _update_fundamentals(symbol: str, store: PriceStore, source) -> str | None:
+    """Refresh the fundamentals snapshot when the source offers one. Never fails the price update."""
+    getter = getattr(source, "fundamentals", None)
+    if getter is None:
+        return None
+    try:
+        metrics = getter(symbol)
+    except Exception as exc:
+        log.warning("%s fundamentals failed: %s", symbol, exc)
+        return f"{type(exc).__name__}: {exc}"
+    if not metrics:
+        return None
+    store.upsert_fundamentals(symbol, metrics, getattr(source, "source_name", lambda _s: source.name)(symbol))
+    return "ok"
