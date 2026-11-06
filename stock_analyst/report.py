@@ -25,6 +25,7 @@ class StockSeries:
     closes: pd.Series  # indexed by date, oldest first
     listing: str = ""
     quoted_as: str = ""
+    fundamentals: dict | None = None
 
 
 def from_store(store: PriceStore, watchlist: Watchlist) -> list[StockSeries]:
@@ -35,7 +36,15 @@ def from_store(store: PriceStore, watchlist: Watchlist) -> list[StockSeries]:
         if df.empty:
             continue
         currency = info.currency.get(stock.symbol) if stock.symbol in info.index else None
-        out.append(StockSeries(stock.symbol, stock.name, currency or "", df["close"]))
+        out.append(
+            StockSeries(
+                stock.symbol,
+                stock.name,
+                currency or "",
+                df["close"],
+                fundamentals=store.get_fundamentals(stock.symbol),
+            )
+        )
     return out
 
 
@@ -50,6 +59,7 @@ def from_snapshot(path: str | Path) -> tuple[list[StockSeries], dict]:
             pd.Series(s["close"], index=pd.to_datetime(s["dates"]).date, dtype=float),
             listing=s.get("listing", ""),
             quoted_as=s.get("quoted_as", ""),
+            fundamentals=s.get("fundamentals"),
         )
         for s in raw["stocks"]
     ]
@@ -61,7 +71,7 @@ def build_payload(stocks: list[StockSeries], as_of: str | None = None, note: str
     rows = []
     for s in stocks:
         closes = s.closes.dropna().astype(float)
-        rec = analyze(closes)
+        rec = analyze(closes, s.fundamentals)
         days = len(closes)
         days_note = f"Based on {days} trading days of closing prices."
         if days < LONG_WINDOW:
