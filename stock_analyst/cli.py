@@ -16,12 +16,18 @@ from .financialdatasets import (
     RoutedSource,
     api_key_from_env,
 )
+from . import alphavantage, eodhd
+from .alphavantage import AlphaVantageSource
+from .chain import SourceChain
+from .eodhd import EODHDSource
+from .http import SourceError
 from .sources import YFinanceSource
 from .store import DEFAULT_DB_PATH, PriceStore
 from .update import update_prices
 from .watchlist import WatchlistError, load_watchlist
 
 DEFAULT_WATCHLIST = Path("watchlist.toml")
+SOURCE_CHOICES = ("auto", "yfinance", "financialdatasets", "eodhd", "alphavantage")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -34,10 +40,12 @@ def main(argv: list[str] | None = None) -> int:
     fetch.add_argument("--full", action="store_true", help="re-download full history")
     fetch.add_argument(
         "--source",
-        choices=("auto", "yfinance", "financialdatasets"),
+        choices=SOURCE_CHOICES,
         default="auto",
-        help=f"auto (default): Financial Datasets for US stocks when {API_KEY_ENV} is set, "
-        "Yahoo Finance for the rest; yfinance: Yahoo only; financialdatasets: require the key",
+        help="auto (default): every source whose API key is set, in the order Financial Datasets "
+        "(US), EODHD, Yahoo Finance, Alpha Vantage; a failed symbol falls through to the next. "
+        "yfinance: Yahoo only. financialdatasets / eodhd / alphavantage: that source first, "
+        "then Yahoo, and stop with an error if its key is missing",
     )
     sub.add_parser("prices", help="latest close and daily change for each stock")
     show = sub.add_parser("show", help="recent daily bars for one symbol")
@@ -76,7 +84,7 @@ def _fetch(args, store: PriceStore) -> int:
         return 2
     try:
         source = make_source(args.source)
-    except FinancialDatasetsError as exc:
+    except (FinancialDatasetsError, SourceError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     print(f"Source: {source.name}")
@@ -94,13 +102,31 @@ def _fetch(args, store: PriceStore) -> int:
 
 
 def make_source(choice: str, api_key: str | None = None):
-    """Build the price source for ``fetch``. Financial Datasets covers US tickers only."""
+    """Build the price source for ``fetch``.
+
+    ``api_key`` overrides the Financial Datasets key (kept for callers of the first version).
+    Keyed sources run before Yahoo Finance; Alpha Vantage, with its small free quota, is the
+    last resort. Each symbol uses the first source that covers it and falls through on errors.
+    """
     if choice == "yfinance":
         return YFinanceSource()
-    key = api_key or api_key_from_env()
-    if choice == "auto" and not key:
-        return YFinanceSource()
-    return RoutedSource(FinancialDatasetsSource(key), YFinanceSource())
+    if choice == "financialdatasets":
+        return SourceChain([FinancialDatasetsSource(api_key or api_key_from_env()), YFinanceSource()])
+    if choice == "eodhd":
+        return SourceChain([EODHDSource(), YFinanceSource()])
+    if choice == "alphavantage":
+        return SourceChain([AlphaVantageSource(), YFinanceSource()])
+
+    first, last = [], []
+    fd_key = api_key or api_key_from_env()
+    if fd_key:
+        first.append(FinancialDatasetsSource(fd_key))
+    if eodhd.api_key_from_env():
+        first.append(EODHDSource())
+    if alphavantage.api_key_from_env():
+        last.append(AlphaVantageSource())
+    sources = first + [YFinanceSource()] + last
+    return sources[0] if len(sources) == 1 else SourceChain(sources)
 
 
 def _prices(store: PriceStore) -> int:
@@ -160,15 +186,30 @@ def _report(args, store: PriceStore) -> int:
     return _write_report(args, report.build_payload(stocks, note=_note(store)))
 
 
+SOURCE_LABELS = {
+    "financialdatasets": "Financial Datasets",
+    "eodhd": "EODHD",
+    "alphavantage": "Alpha Vantage",
+    "yfinance": "Yahoo Finance",
+}
+
+
 def _note(store: PriceStore) -> str:
-    sources = set(store.securities()["source"].dropna())
-    parts = []
-    if any("financialdatasets" in s for s in sources):
-        parts.append("US prices and fundamentals from Financial Datasets")
-    if "yfinance" in sources or not parts:
-        parts.append("daily closes from Yahoo Finance")
-    text = "; ".join(parts)
-    return text[0].upper() + text[1:] + "."
+    """Name the providers behind the stored data, e.g. "Prices from EODHD and Yahoo Finance."."""
+    prices = _labels(set(store.securities()["source"].dropna())) or ["Yahoo Finance"]
+    text = "Daily closes from " + _join(prices)
+    fundamentals = _labels(store.fundamentals_sources())
+    if fundamentals:
+        text += "; fundamentals from " + _join(fundamentals)
+    return text + "."
+
+
+def _labels(names: set[str]) -> list[str]:
+    return [label for name, label in SOURCE_LABELS.items() if name in names]
+
+
+def _join(labels: list[str]) -> str:
+    return labels[0] if len(labels) == 1 else ", ".join(labels[:-1]) + " and " + labels[-1]
 
 
 def _write_report(args, payload: dict) -> int:
